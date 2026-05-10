@@ -1,0 +1,14 @@
+node_modules/
+cache/
+artifacts/
+.env
+coverage/
+coverage.json
+typechain-types/
+.env
+backend/.env
+node_modules
+__pycache__
+artifacts
+cache
+dist
