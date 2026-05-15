@@ -24,6 +24,7 @@ class QueryResponse(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0)
     is_hallucination: bool
     evidence: str
+    retrieved_chunks: list[str] | None = None
     stake_amount: str
     tx_hash: str
     trust_score: int

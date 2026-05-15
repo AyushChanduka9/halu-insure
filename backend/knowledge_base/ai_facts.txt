@@ -1,0 +1,6 @@
+AI reliability facts:
+- Large language models can generate fluent text that is incorrect.
+- Hallucination means producing confident but unsupported or fabricated claims.
+- Good auditing compares claims against trusted evidence and uncertainty cues.
+- If evidence is weak or missing, safer behavior is to mark the answer as uncertain.
+- A model should avoid fake sources and avoid pretending to know unknown facts.

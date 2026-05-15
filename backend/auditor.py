@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
+from vector_store import retrieve_relevant_chunks
 
 # -----------------------------------------------------------------------------
 # Logging (mirror prover.py style)
@@ -115,6 +116,10 @@ class AuditResult(BaseModel):
     is_hallucination: bool = Field(..., description="True if answer seems wrong, misleading, or fabricated")
     evidence: str = Field(..., min_length=1, description="Short reasoning comparing question vs answer")
     verdict: str = Field(..., min_length=1, description="One-line label, e.g. consistent / likely_hallucination")
+    retrieved_chunks: list[str] = Field(
+        default_factory=list,
+        description="Top retrieved chunk texts used as trusted context for auditing",
+    )
 
     @field_validator("is_hallucination", mode="before")
     @classmethod
@@ -207,6 +212,7 @@ def _fallback_audit(reason: str) -> AuditResult:
         is_hallucination=False,
         evidence=_FALLBACK_EVIDENCE,
         verdict=_FALLBACK_VERDICT,
+        retrieved_chunks=[],
     )
 
 
@@ -224,11 +230,27 @@ def audit_answer(question: str, answer: str) -> AuditResult:
     if not a:
         return _fallback_audit("empty answer")
 
-    system_prompt = """You are Halu-Insure's hallucination auditor.
+    retrieved_chunks_text = "No trusted context was retrieved."
+    retrieved_chunk_list: list[str] = []
+    try:
+        retrieved = retrieve_relevant_chunks(q, a, top_k=3)
+        if retrieved:
+            lines = []
+            for i, chunk in enumerate(retrieved, start=1):
+                retrieved_chunk_list.append(chunk.text)
+                lines.append(
+                    f"[{i}] source={chunk.source} score={chunk.score:.4f} text={chunk.text}"
+                )
+            retrieved_chunks_text = "\n".join(lines)
+    except Exception as exc:
+        _dbg("RAG retrieval failed; continuing without retrieved context: %s", exc)
+
+    system_prompt = """You are Halu-Insure's hallucination auditor with retrieval support.
 
 You receive:
 - The USER QUESTION (what the user asked).
 - The PROVER ANSWER (what another model replied).
+- TRUSTED RETRIEVED CONTEXT (small local knowledge chunks).
 
 Your job: decide if the PROVER ANSWER appears incorrect, misleading, inconsistent with the question,
 or fabricated (making up facts, fake citations, or claiming certainty about things that cannot be known).
@@ -240,13 +262,18 @@ Use this EXACT schema:
 Rules:
 - is_hallucination: true if the answer appears wrong, evasive in a deceptive way, or likely fabricated/made up;
   false if it seems plausibly correct and grounded, or appropriately cautious when uncertain.
-- evidence: 2–4 short sentences explaining your comparison (question vs answer). Plain text inside the JSON string.
+- evidence: 2–4 short sentences explaining your comparison (question vs answer) and referencing retrieved context when relevant.
+- If retrieved context directly conflicts with the prover answer, treat that as stronger hallucination evidence.
 - verdict: a very short human label (e.g. "likely_grounded", "likely_hallucination", "unclear", "off_topic").
 - Do not hedge with extra keys — only those three fields.
 """
 
     user_payload = json.dumps(
-        {"user_question": q, "prover_answer": a},
+        {
+            "user_question": q,
+            "prover_answer": a,
+            "trusted_retrieved_context": retrieved_chunks_text,
+        },
         ensure_ascii=False,
     )
 
@@ -267,7 +294,10 @@ Rules:
             return _fallback_audit("JSON decode failed on model content")
 
         try:
-            return AuditResult.model_validate(blob)
+            parsed = AuditResult.model_validate(blob)
+            # Preserve the exact retrieved chunk texts that were used during auditing.
+            parsed.retrieved_chunks = retrieved_chunk_list
+            return parsed
         except ValidationError as exc:
             _dbg("Pydantic ValidationError on audit JSON: %s raw_dict=%r", exc, blob)
             return _fallback_audit("validation failed")

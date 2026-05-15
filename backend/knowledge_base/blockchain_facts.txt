@@ -1,0 +1,6 @@
+Blockchain basics:
+- A blockchain is a shared ledger replicated across many nodes.
+- Transactions are grouped into blocks and linked by cryptographic hashes.
+- Once data is confirmed and deeply buried by later blocks, changing it is hard.
+- Smart contracts are programs that run on-chain when called by transactions.
+- Gas is the fee paid to execute transactions and contract code.

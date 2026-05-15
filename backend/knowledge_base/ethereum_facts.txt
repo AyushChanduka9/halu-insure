@@ -1,0 +1,7 @@
+Ethereum facts (simple):
+- Ethereum is a blockchain that supports smart contracts.
+- Sepolia is a public Ethereum testnet used for testing.
+- ETH is the native token used to pay gas fees.
+- MetaMask is a wallet that can sign and send transactions.
+- A transaction hash identifies a submitted transaction on the network.
+- Finality on testnets is not instant; confirmations can take time.

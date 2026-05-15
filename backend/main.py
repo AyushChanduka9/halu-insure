@@ -15,6 +15,7 @@ from blockchain import (
 )
 from models import QueryRequest, QueryResponse
 from prover import mock_prove_query
+from vector_store import get_vector_store
 
 app = FastAPI(title="Halu-Insure")
 app.add_middleware(
@@ -29,6 +30,53 @@ app.add_middleware(
 @app.get("/")
 def root():
     return {"message": "Halu-Insure backend is running"}
+
+
+@app.get("/rag/debug")
+def rag_debug(q: str, k: int = 5):
+    """
+    Debug endpoint for RAG retrieval.
+
+    Why this exists:
+    - Lets you inspect exactly what retrieval returns for a query.
+    - Helps confirm whether useful context is available before prompt assembly.
+    """
+    try:
+        query = (q or "").strip()
+        if not query:
+            raise HTTPException(status_code=400, detail="Query parameter 'q' cannot be empty.")
+
+        # Keep k in a small safe range so beginners do not accidentally request huge outputs.
+        top_k = max(1, min(k, 10))
+
+        store = get_vector_store()
+        retrieved = store.search(query, k=top_k)
+
+        # Return chunk text + source + score.
+        # In this FAISS setup (IndexFlatL2), smaller score means closer match.
+        top_chunks = [
+            {
+                "rank": i + 1,
+                "text": chunk.text,
+                "source": chunk.source,
+                "score": chunk.score,
+                "distance": chunk.score,  # alias to make interpretation explicit in debug output
+            }
+            for i, chunk in enumerate(retrieved)
+        ]
+
+        return {
+            "original_query": query,
+            "top_retrieved_chunks": top_chunks,
+            "total_chunks_indexed": store.total_chunks_indexed(),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"/rag/debug failed: {str(exc)}",
+        )
 
 
 @app.post("/query", response_model=QueryResponse)
@@ -120,6 +168,7 @@ def post_query(body: QueryRequest):
             confidence=result.confidence,
             is_hallucination=audit.is_hallucination,
             evidence=f"{audit.verdict}: {audit.evidence}",
+            retrieved_chunks=audit.retrieved_chunks,
             stake_amount=stake_amount,
             tx_hash=final_tx_hash,
             trust_score=trust_score,
